@@ -252,6 +252,8 @@ def cdf_standard_gaussian(x):
 class EnVariationalDiffusion(torch.nn.Module):
     """
     The E(n) Diffusion Module.
+
+    dynamics = egnn dynamics
     """
     def __init__(
             self,
@@ -478,7 +480,7 @@ class EnVariationalDiffusion(torch.nn.Module):
         gamma_0 = self.gamma(zeros)
         # Computes sqrt(sigma_0^2 / alpha_0^2)
         sigma_x = self.SNR(-0.5 * gamma_0).unsqueeze(1)
-        net_out = self.phi(z0, zeros, node_mask, edge_mask, context)
+        net_out = self.phi(z0, zeros, node_mask, edge_mask, context)  # egnn forward
 
         # Compute mu for p(zs | zt).
         mu_x = self.compute_x_pred(net_out, z0, gamma_0)
@@ -564,7 +566,11 @@ class EnVariationalDiffusion(torch.nn.Module):
         return log_p_xh_given_z
 
     def compute_loss(self, x, h, node_mask, edge_mask, context, t0_always):
-        """Computes an estimator for the variational lower bound, or the simple loss (MSE)."""
+        """Computes an estimator for the variational lower bound, or the simple loss (MSE).
+        
+        when t0_always: 
+            t_int rand int from 1, else 0
+        """
 
         # This part is about whether to include loss term 0 always.
         if t0_always:
@@ -606,7 +612,7 @@ class EnVariationalDiffusion(torch.nn.Module):
         diffusion_utils.assert_mean_zero_with_mask(z_t[:, :, :self.n_dims], node_mask)
 
         # Neural net prediction.
-        net_out = self.phi(z_t, t, node_mask, edge_mask, context)
+        net_out = self.phi(z_t, t, node_mask, edge_mask, context)  # egnn forward
 
         # Compute the error.
         error = self.compute_error(net_out, gamma_t, eps)
@@ -688,6 +694,11 @@ class EnVariationalDiffusion(torch.nn.Module):
     def forward(self, x, h, node_mask=None, edge_mask=None, context=None):
         """
         Computes the loss (type l2 or NLL) if training. And if eval then always computes NLL.
+
+        d log p(x) -> if l2 then reset to 0
+        t0_always in DiffLink = False (removed)
+
+        return -log p(x_h)
         """
         # Normalize data, take into account volume change in x.
         x, h, delta_log_px = self.normalize(x, h, node_mask)
@@ -698,6 +709,7 @@ class EnVariationalDiffusion(torch.nn.Module):
 
         if self.training:
             # Only 1 forward pass when t0_always is False.
+            # egnn forward is insize this `compute_loss` function
             loss, loss_dict = self.compute_loss(x, h, node_mask, edge_mask, context, t0_always=False)
         else:
             # Less variance in the estimator, costs two forward passes.
